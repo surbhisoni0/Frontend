@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WinGo Big/Small Lab</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo"><i class="g"></i><i class="r"></i></span><div><h1>WinGo Big/Small Lab</h1><p>Big or Small, tested on unseen history</p></div></div>
+  <div class="tools"><span id="updated" class="muted"></span><button class="btn ghost" id="refresh" type="button">Refresh</button><div class="status" id="status">connecting…</div></div>
+</header>
+<div class="banner" role="note"><strong>Honest note.</strong> The pick below is a statistical guess. Testing on unseen rounds shows it is no better than guessing a colour at random, so treat it as a coin flip. No tool can guarantee a win; this one places no bets.</div>
+<div id="conn" class="conn" role="status" hidden></div>
+<nav class="tabs" id="tabs">
+  <button data-tab="dash" class="on">Predict</button><button data-tab="trends">Trends</button><button data-tab="history">History</button>
+  <button data-tab="stats" data-testid="tab-stats">Stats</button><button data-tab="perf">Accuracy</button><button data-tab="analysis">Data</button><button data-tab="add">Add rounds</button>
+</nav>
+<main>
+<section id="tab-dash" class="tab on">
+  <div id="streak-alert" class="streak" role="status" data-testid="streak-alert-banner" hidden></div>
+  <article class="card" id="clock"><h2>Round status <small>verified by the server</small><span id="cd-badge" class="badge wait">Connecting…</span></h2><div class="skeleton">loading…</div></article>
+  <div class="grid two">
+    <article class="card hero" id="pick"><h2>Experimental estimate <small>not a forecast</small></h2><div class="skeleton">loading…</div></article>
+    <article class="card" id="reality"><h2>Reality check <small>Big/Small accuracy on rounds the model had not seen</small></h2><div class="skeleton">loading…</div></article>
+  </div>
+  <article class="card" id="stats-mini" data-testid="stats-mini-card"><h2>Accuracy &amp; hot / cold <small>last 50 rounds · walk-forward test</small><button class="btn ghost" id="open-stats" type="button" data-testid="open-stats-page-btn">Full stats page</button></h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="sync"><h2>Live data sync <small>server-side, works with the browser closed</small></h2><div class="skeleton">loading…</div></article>
+  <article class="card"><h2>Last 40 rounds <small>oldest → newest, hover for the number</small></h2><div id="strip" class="strip"></div></article>
+  <div class="grid two">
+    <article class="card" id="mix"><h2>Big / Small mix <small>share of all stored rounds</small></h2><div class="skeleton">loading…</div></article>
+    <article class="card" id="models"><h2>Each model's pick</h2><div class="skeleton">loading…</div></article>
+  </div>
+</section>
+<section id="tab-trends" class="tab">
+  <article class="card" id="tr-sum"><h2>Summary <select id="trwin" aria-label="Window"><option>40</option><option selected>100</option><option>200</option><option>500</option></select><small>last N stored rounds</small></h2><div class="skeleton">open this tab to load</div></article>
+  <article class="card" id="tr-trend"><h2>Number trend <small>last 40 rounds, newest on the right</small></h2><div id="tr-trend-chart"></div></article>
+  <div class="grid two">
+    <article class="card" id="tr-missing"><h2>Frequency &amp; rounds since last seen</h2><div class="skeleton">loading…</div></article>
+    <article class="card" id="tr-pat"><h2>Current patterns</h2><div class="skeleton">loading…</div></article>
+  </div>
+  <article class="card" id="tr-road"><h2>Trend roadmap <small>each column is a run of the same result · newest on the right</small></h2>
+    <h3>Big / Small</h3><div id="tr-road-size"></div><h3>Green / Red</h3><div id="tr-road-col"></div></article>
+  <article class="card" id="tr-table"><h2>Latest results</h2><div class="skeleton">loading…</div></article>
+</section>
+<section id="tab-history" class="tab">
+  <article class="card"><h2>Prediction history</h2>
+    <div class="tablewrap"><table id="hist"><thead><tr><th>Round</th><th>Estimate</th><th>Generated</th><th>Actual (verified)</th><th>Result</th></tr></thead><tbody></tbody></table></div>
+    <button id="more" class="btn ghost">Load more</button></article>
+</section>
+<section id="tab-stats" class="tab" data-testid="stats-page">
+  <article class="card" id="st-acc" data-testid="stats-accuracy-card"><h2>Prediction accuracy report <small>every stored round predicted using only earlier rounds</small></h2><div class="skeleton">open this tab to load</div></article>
+  <div class="grid two">
+    <article class="card" id="st-hc-50" data-testid="stats-hotcold-50"><h2>Hot &amp; cold · last 50 rounds</h2><div class="skeleton">loading…</div></article>
+    <article class="card" id="st-hc-100" data-testid="stats-hotcold-100"><h2>Hot &amp; cold · last 100 rounds</h2><div class="skeleton">loading…</div></article>
+  </div>
+  <article class="card" id="st-daily" data-testid="stats-daily-card"><h2>Daily summary <small>grouped by the date in the period ID · newest first</small></h2><div class="skeleton">loading…</div></article>
+</section>
+<section id="tab-perf" class="tab">
+  <article class="card" id="perf-live"><h2>Live accuracy <small>picks made before the result arrived</small></h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="perf-bt"><h2>Walk-forward test <small>each round predicted using only earlier rounds</small></h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="sizeeval"><h2>Big/Small evaluation <small>probability quality on unseen rounds</small></h2><div class="skeleton">loading…</div></article>
+  <div class="grid two"><article class="card"><h2>Accuracy over time <small>rolling 100 · vs random</small></h2><div id="chart-roll"></div></article>
+  <article class="card"><h2>Live accuracy over time</h2><div id="chart-live"></div></article></div>
+</section>
+<section id="tab-analysis" class="tab">
+  <div class="grid two"><article class="card"><h2>Number distribution <small>dashed = 10% expected</small></h2><div id="chart-dist"></div></article>
+  <article class="card"><h2>Recent frequency <select id="win"><option>20</option><option selected>50</option><option>100</option></select></h2><div id="chart-recent"></div></article></div>
+  <div class="grid two"><article class="card"><h2>Big / Small</h2><div id="chart-bs"></div></article><article class="card"><h2>Colour <small>(for reference)</small></h2><div id="chart-color"></div></article></div>
+  <article class="card" id="size-windows"><h2>Big / Small by window <small>vs a fair 50 / 50</small></h2><div class="skeleton">open this tab to load</div></article>
+  <article class="card" id="size-trans"><h2>Transitions &amp; streaks <small>what followed each colour</small></h2><div class="skeleton">open this tab to load</div></article>
+  <article class="card"><h2>Randomness tests</h2><div id="tests"></div></article>
+  <article class="card"><h2>Data quality</h2><div id="dq"></div></article>
+</section>
+<section id="tab-add" class="tab">
+  <article class="card"><h2>Paste rounds from the website</h2>
+    <p class="muted">Copy rows from the game's history list and paste them here, one round per line (for example <code>5 Big green violet</code>). Only paste rounds <b>newer</b> than the last stored one. Nothing is fetched from any website.</p>
+    <textarea id="paste" rows="6" spellcheck="false" placeholder="20260101100051234 5 Big green violet&#10;20260101100051235 2 Small red"></textarea>
+    <div class="row"><label class="inline"><input type="checkbox" id="pnewest"> newest round is on top</label><button class="btn" id="dopaste">Import pasted rounds</button></div>
+    <div id="pastemsg" class="msg"></div>
+  </article>
+  <article class="card"><h2>Add one result</h2>
+    <p class="muted">Tap the number that was drawn. It is stored, compared with the pending pick, and a new pick is made.</p>
+    <div class="pad" id="pad"></div>
+    <div class="row"><label>Round ID <small>(optional, digits)</small><input id="period" inputmode="numeric" maxlength="32" autocomplete="off"></label>
+    <label>Time <small>(optional)</small><input id="ts" type="datetime-local"></label>
+    <label>Admin key <small>(required to save rounds)</small><input id="key" type="password" autocomplete="off" data-testid="admin-key-input"></label></div>
+    <div id="addmsg" class="msg"></div>
+  </article>
+  <article class="card"><h2>Import CSV</h2>
+    <p class="muted">Columns: <code>number</code> (required), <code>period_id</code>, <code>timestamp</code>. Keep period IDs as text.</p>
+    <div class="row"><input type="file" id="csv" accept=".csv,text/csv"><label class="inline"><input type="checkbox" id="newest"> newest round first in file</label><button class="btn" id="doimport">Import</button></div>
+    <div id="impmsg" class="msg"></div>
+  </article>
+</section>
+</main>
+<footer>Analysis only · no guarantee of any outcome · no betting, deposit or withdrawal features</footer>
+<script src="app.js"></script>
+</body>
+</html>
