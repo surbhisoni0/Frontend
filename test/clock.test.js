@@ -84,7 +84,7 @@ const assumedClock = P => ({ schedule: { verified: false, period_seconds: P },
   countdown: { state: "assumed", period_seconds: P, round_ends_at: new Date(T0 + P * 1000).toISOString(), reason: "assumed" } });
 const mmss = s => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-for (const [P, make, name] of [[30, feedClock, "30s feed"], [60, feedClock, "1min feed"], [120, assumedClock, "2min assumed"]]) {
+for (const [P, make, name] of [[30, feedClock, "30s feed"], [60, feedClock, "1min feed"]]) {
   test(`${name}: counts down every second, never shows 00:00, restarts at ${mmss(P)} and rolls the period`, () => {
     Object.assign(CLOCK, { data: make(P), samples: [], failures: 0 });
     const shown = new Set();
@@ -115,10 +115,10 @@ test("a server that has not answered yet is 'Connecting…', and only repeated f
 /* ---- the stuck-00:00 fix: the timer runs by itself on the selected duration, with or without a new result ---- */
 const { cycleAt, roundTick, ROUND, TIMER_MODES, MODE_SECONDS, MODE_LABEL } = require("../app.js");
 
-test("the three timer options exist, 30 Sec first", () => {
-  assert.deepEqual(TIMER_MODES, ["30s", "1min", "2min"]);
-  assert.deepEqual(TIMER_MODES.map(k => MODE_LABEL[k]), ["30 Sec", "1 Min", "2 Min"]);
-  assert.deepEqual(TIMER_MODES.map(k => MODE_SECONDS[k]), [30, 60, 120]);
+test("the two timer options exist, 30 Sec first", () => {
+  assert.deepEqual(TIMER_MODES, ["30s", "1min"]);
+  assert.deepEqual(TIMER_MODES.map(k => MODE_LABEL[k]), ["30 Sec", "1 Min"]);
+  assert.deepEqual(TIMER_MODES.map(k => MODE_SECONDS[k]), [30, 60]);
 });
 
 test("cycleAt: remaining is always 1 ms .. full duration (never 0, never negative), full duration right at a boundary, any anchor works", () => {
