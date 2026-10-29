@@ -74,3 +74,40 @@ test("change detection key moves only when a new confirmed result or next round 
   assert.notEqual(clockKey(d(130, "700131")), clockKey(d(131, "700132")));
   assert.equal(clockKey({ latest_confirmed: null }), "none");
 });
+
+/* ---- the three timer options: every second shows a real value, the countdown restarts for the chosen duration, periods advance ---- */
+const { clockView, CLOCK } = require("../app.js");
+const T0 = Date.parse("2026-10-29T10:00:00Z");
+const feedClock = P => ({ schedule: { verified: false, period_seconds: P },
+  countdown: { state: "open", source: "feed", period_seconds: P, current_period: "20261029100050100", round_ends_at: new Date(T0 + P * 1000).toISOString(), awaiting_results: [] } });
+const assumedClock = P => ({ schedule: { verified: false, period_seconds: P },
+  countdown: { state: "assumed", period_seconds: P, round_ends_at: new Date(T0 + P * 1000).toISOString(), reason: "assumed" } });
+const mmss = s => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+for (const [P, make, name] of [[30, feedClock, "30s feed"], [60, feedClock, "1min feed"], [120, assumedClock, "2min assumed"]]) {
+  test(`${name}: counts down every second, never shows 00:00, restarts at ${mmss(P)} and rolls the period`, () => {
+    Object.assign(CLOCK, { data: make(P), samples: [], failures: 0 });
+    const shown = new Set();
+    for (let ms = 0; ms < P * 3 * 1000; ms += 100) {
+      const v = clockView(T0 + ms); shown.add(v.big);
+      assert.notEqual(v.big, "00:00", `00:00 flashed at +${ms}ms`);
+    }
+    for (let sec = 1; sec <= P; sec++) assert.ok(shown.has(mmss(sec)), `${mmss(sec)} never displayed`);      // one tick per second, full duration each cycle
+    assert.equal(clockView(T0).big, mmss(P));                                                              // starts at the full duration
+    assert.equal(clockView(T0 + P * 1000 + 50).big, mmss(P));                                              // reset for the next period
+    if (make === feedClock) {
+      assert.equal(localCountdown(CLOCK.data, T0 + 1000).current, "20261029100050100");
+      assert.equal(localCountdown(CLOCK.data, T0 + P * 1000 + 1000).current, "20261029100050101");
+      assert.equal(localCountdown(CLOCK.data, T0 + P * 2000 + 1000).current, "20261029100050102");
+      assert.equal(clockView(T0 + 1000).badge, "Live · synced to feed");
+    } else assert.equal(clockView(T0 + 1000).badge, "Assumed schedule");                                    // never presented as verified
+  });
+}
+
+test("a server that has not answered yet is 'Connecting…', and only repeated failures read 'Reconnecting…'", () => {
+  Object.assign(CLOCK, { data: null, samples: [], failures: 0 });
+  assert.equal(clockView(T0).badge, "Connecting…");
+  CLOCK.failures = 2; assert.equal(clockView(T0).badge, "Connecting…");
+  CLOCK.failures = 3; assert.equal(clockView(T0).badge, "Reconnecting…");
+  Object.assign(CLOCK, { data: null, samples: [], failures: 0 });
+});
