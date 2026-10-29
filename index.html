@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WinGo Big/Small Lab</title>
-<link rel="stylesheet" href="style.css?v=20261029">
+<link rel="stylesheet" href="style.css?v=20261030b">
 </head>
 <body>
 <header class="top">
@@ -25,6 +25,7 @@
     <article class="card hero" id="pick"><h2>Experimental estimate <small>not a forecast</small></h2><div class="skeleton">loading…</div></article>
     <article class="card" id="reality"><h2>Reality check <small>Big/Small accuracy on rounds the model had not seen</small></h2><div class="skeleton">loading…</div></article>
   </div>
+  <article class="card" id="cyclehist" data-testid="cycle-history"><h2>Round history <small>updates after every countdown · last 10 rounds</small></h2><div class="skeleton">loading…</div></article>
   <article class="card" id="stats-mini" data-testid="stats-mini-card"><h2>Accuracy &amp; hot / cold <small>last 50 rounds · walk-forward test</small><button class="btn ghost" id="open-stats" type="button" data-testid="open-stats-page-btn">Full stats page</button></h2><div class="skeleton">loading…</div></article>
   <article class="card" id="sync"><h2>Live data sync <small>server-side, works with the browser closed</small></h2><div class="skeleton">loading…</div></article>
   <article class="card"><h2>Last 40 rounds <small>oldest → newest, hover for the number</small></h2><div id="strip" class="strip"></div></article>
@@ -96,6 +97,6 @@
 </section>
 </main>
 <footer>Analysis only · no guarantee of any outcome · no betting, deposit or withdrawal features</footer>
-<script src="app.js?v=20261029-cycle2"></script>
+<script src="app.js?v=20261030-cycle4"></script>
 </body>
 </html>
