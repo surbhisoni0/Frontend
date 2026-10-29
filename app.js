@@ -31,7 +31,8 @@ const clear = e => { e.replaceChildren(); return e; };
 const setBody = (card, ...kids) => { const h = card.querySelector("h2"); card.replaceChildren(h, ...kids.flat().filter(k => k != null)); };
 
 let API_KEY = () => $("#key").value.trim();
-let MODE = (typeof localStorage !== "undefined" && localStorage.getItem("wingo:mode")) || "1min";
+const TIMER_MODES = ["30s", "1min", "2min"];                           // the three timer options shown
+let MODE = "30s";                                                   // the page always opens on 30 seconds
 const withMode = p => (p.startsWith("/api/") && !p.startsWith("/api/modes") ? p + (p.includes("?") ? "&" : "?") + "mode=" + MODE : p);
 async function api(path, opts = {}) {
   path = withMode(path);
@@ -133,30 +134,31 @@ function pollDelay({ failures, local, pollMs }) {
 const clockKey = d => (d && d.latest_confirmed ? `${d.latest_confirmed.seq}|${d.next_round ? d.next_round.label : "-"}` : "none");
 
 async function fetchClock() {
-  const t0 = Date.now();
+  const t0 = Date.now(), m = MODE;
   try {
     const d = await api("/api/clock", { timeoutMs: 8000 }), t1 = Date.now();
+    if (m !== MODE) return d;                                         // user switched mode meanwhile: drop this answer
     CLOCK.samples = [...CLOCK.samples.slice(-5), { rtt: t1 - t0, offset: d.server_epoch_ms - (t0 + t1) / 2 }];
     CLOCK.data = d; CLOCK.failures = 0; CLOCK.lastOkAt = t1;
     return d;
-  } catch (e) { CLOCK.failures += 1; throw e; }
+  } catch (e) { if (m === MODE) CLOCK.failures += 1; throw e; }
 }
 
 function clockView(now = Date.now()) {
   const d = CLOCK.data, off = CLOCK.failures >= 3 || (typeof navigator !== "undefined" && navigator.onLine === false);
-  if (!d) return CLOCK.failures
-    ? { badge: off ? "Disconnected" : "Reconnecting…", cls: "bad", big: "--:--", note: "Cannot reach the server. Retrying automatically." }
+  if (!d) return CLOCK.failures >= 3
+    ? { badge: typeof navigator !== "undefined" && navigator.onLine === false ? "Disconnected" : "Reconnecting…", cls: "bad", big: "--:--", note: "Cannot reach the server. Retrying automatically." }
     : { badge: "Connecting…", cls: "wait", big: "--:--", note: "Waiting for the server. A sleeping server can take up to a minute to wake up." };
   const lbl = d.next_round ? d.next_round.label : "—", loc = localCountdown(d, now + pickOffset(CLOCK.samples));
   const stale = CLOCK.failures > 0 ? ` Offline since ${new Date(CLOCK.lastOkAt).toLocaleTimeString()}: whether a newer result exists is unknown.` : "";
   const conn = CLOCK.failures > 0 ? { badge: off ? "Disconnected" : "Reconnecting…", cls: "bad" } : null;
   const v = {
-    live: { badge: "Live · synced to feed", cls: "ok", big: fmtClock(Math.floor(loc.remainingMs / 1000) * 1000),
+    live: { badge: "Live · synced to feed", cls: "ok", big: fmtClock(loc.remainingMs),
       note: loc.awaiting ? `Round ${loc.current} is open. Waiting for the confirmed result of ${loc.awaiting} ended round(s); results are never guessed.` : `Round ${loc.current} is open. Timer and period follow the live feed's clock.` },
     open: { badge: "Round open", cls: "ok", big: fmtClock(loc.remainingMs), note: `Timer to the end of round ${lbl}. A round only counts once its result is confirmed.` },
     awaiting_result: { badge: "Awaiting result", cls: "warn", big: "00:00", note: `Timer reached zero. The verified result of round ${lbl} is not confirmed yet.` },
     late: { badge: "Result overdue", cls: "warn", big: "00:00", note: `The result of round ${lbl} is ${fmtAge(Math.round((loc.overdueMs || 0) / 1000))} overdue; ${loc.ended} round(s) have ended since the last confirmed result. Period numbers do not advance until results are confirmed.` },
-    assumed: { badge: "Assumed schedule", cls: "warn", big: fmtClock(loc.remainingMs), note: "NOT VERIFIED: this timer counts to every full minute on the clock, not to your data source. It may not match the game's own timer. Connect a live source (SYNC_* in .env) to verify it." },
+    assumed: { badge: "Assumed schedule", cls: "warn", big: fmtClock(loc.remainingMs), note: "NOT VERIFIED: this timer counts to every full period on the clock, not to your data source. It may not match the game's own timer. Connect a live source (SYNC_* in .env) to verify it." },
     unverified: { badge: "Timing unverified", cls: "mut", big: "--:--", note: `No countdown: ${loc.reason || (d.schedule && d.schedule.reason) || "the schedule could not be verified"}` },
     no_data: { badge: "No data", cls: "mut", big: "--:--", note: "No confirmed results are stored yet." },
   }[loc.state];
@@ -350,9 +352,11 @@ function renderSizeEval(bt) {
 
 let lastSeen = null, lastLatest = null, pollMs = 10000;
 async function loadDash() {
+  const m = MODE;
   try {
     const [p, r, perf, stats, sync, clk] = await Promise.all([api("/api/prediction/next"), api("/api/results?limit=40"), api("/api/model-performance"),
       api("/api/data/stats").catch(() => null), api("/api/sync/status").catch(() => null), fetchClock()]);
+    if (m !== MODE) return;                                          // stale answers for the previous mode
     perfCache = perf; renderNext(p, perf, stats); lastLatest = r.results[0] || null;
     lastSeen = clockKey(clk); CLOCK.reconcile = false;
     if (sync) { renderSync(sync, lastLatest); stateBanner(sync); } else hideConn();
@@ -642,14 +646,14 @@ function showTab(name) {
 }
 async function setMode(m) {
   if (m === MODE) return;
-  MODE = m; localStorage.setItem("wingo:mode", m);
+  MODE = m;
   document.querySelectorAll("#modes button").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
   Object.assign(CLOCK, { data: null, samples: [], failures: 0, reconcile: true }); lastSeen = null; perfCache = null;
-  clearTimeout(CLOCK.timer); tick(); await refreshAll(); showTab(document.querySelector(".tabs button.on").dataset.tab); schedulePoll();
+  clearTimeout(CLOCK.timer); tick(); fetchClock().then(() => renderClock()).catch(() => {}); await refreshAll(); showTab(document.querySelector(".tabs button.on").dataset.tab); schedulePoll();
 }
 async function buildModes() {
-  let ms; try { ms = (await api("/api/modes")).modes; } catch (_) { return; }
-  if (!ms.some(x => x.key === MODE)) MODE = "1min";
+  let ms; try { ms = (await api("/api/modes")).modes.filter(x => TIMER_MODES.includes(x.key)); } catch (_) { return; }
+  if (!ms.some(x => x.key === MODE)) MODE = "30s";
   clear($("#modes")).append(...ms.map(x => el("button", { type: "button", "data-mode": x.key, "data-testid": `mode-${x.key}`, class: x.key === MODE ? "on" : "",
     onclick: () => setMode(x.key) }, x.label.replace("WinGo ", ""))));
 }
@@ -667,4 +671,4 @@ function init() {
 }
 if (typeof document !== "undefined" && document.getElementById) init();
 
-if (typeof module !== "undefined" && module.exports) module.exports = { localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
+if (typeof module !== "undefined" && module.exports) module.exports = { clockView, CLOCK, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
