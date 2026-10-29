@@ -31,9 +31,9 @@ const clear = e => { e.replaceChildren(); return e; };
 const setBody = (card, ...kids) => { const h = card.querySelector("h2"); card.replaceChildren(h, ...kids.flat().filter(k => k != null)); };
 
 let API_KEY = () => $("#key").value.trim();
-const TIMER_MODES = ["30s", "1min", "2min"];                           // the three timer options shown
-const MODE_SECONDS = { "30s": 30, "1min": 60, "2min": 120 };
-const MODE_LABEL = { "30s": "30 Sec", "1min": "1 Min", "2min": "2 Min" };
+const TIMER_MODES = ["30s", "1min"];                                    // the two timer options shown
+const MODE_SECONDS = { "30s": 30, "1min": 60 };
+const MODE_LABEL = { "30s": "30 Sec", "1min": "1 Min" };
 let MODE = "30s";                                                   // the page always opens on 30 seconds
 const withMode = p => (p.startsWith("/api/") && !p.startsWith("/api/modes") ? p + (p.includes("?") ? "&" : "?") + "mode=" + MODE : p);
 async function api(path, opts = {}) {
@@ -336,7 +336,7 @@ function renderNext(p, perf, stats) {
   const pick = $("#pick"), reality = $("#reality"), models = $("#models");
   if (!p.available) {
     CYCLE.shownId = null;
-    const hint = el("p", { class: "bar-note" }, "An estimate needs confirmed past results. They come from the live feed (30 Sec, 1 Min) or from what you add on the Add rounds tab. 2 Min has no feed: paste or import at least 100 past 2-minute rounds there, then every result you add produces the next estimate. Nothing is invented.");
+    const hint = el("p", { class: "bar-note" }, "An estimate needs confirmed past results. They come from the live feed (30 Sec, 1 Min) or from what you add on the Add rounds tab. Nothing is invented.");
     setBody(pick, el("p", { class: "muted" }, p.reason), hint); [reality, models].forEach(c => setBody(c, el("p", { class: "muted" }, p.reason))); return;
   }
   if (p.id !== CYCLE.shownId) CYCLE.noNew = null;                      // a new estimate replaces the "nothing new" notice
