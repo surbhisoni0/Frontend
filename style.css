@@ -98,3 +98,14 @@ dl.kv{margin:0}
 #stats-mini h2 .btn.ghost{margin:0 0 0 auto;padding:4px 10px;font-size:13px}
 #tr-table .ball.sm{--s:26px}#tr-missing .ball.sm{--s:26px}
 .modes button:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+
+.cyclebar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:10px 12px;margin-bottom:12px;border-radius:10px;border:1px solid var(--line,#2a3342);background:rgba(127,127,127,.08)}
+.cyclebar.hit{border-color:#2e9e5b}.cyclebar.miss{border-color:#c0504d}
+.cyclebar .cb-l{display:flex;align-items:center;gap:8px}.cyclebar .cb-k{font-size:.85rem;opacity:.75}
+.cyclebar .cb-r{font-weight:600}
+.pickrow.fresh{animation:newpick 1.2s ease-out}
+@keyframes newpick{from{transform:scale(.96);opacity:.2}to{transform:none;opacity:1}}
+
+.newrow{animation:rowflash 1.6s ease-out}
+@keyframes rowflash{from{background:rgba(46,158,91,.35)}to{background:transparent}}
+.ok{color:#2e9e5b}.no{color:#c0504d}
