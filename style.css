@@ -109,3 +109,7 @@ dl.kv{margin:0}
 .newrow{animation:rowflash 1.6s ease-out}
 @keyframes rowflash{from{background:rgba(46,158,91,.35)}to{background:transparent}}
 .ok{color:#2e9e5b}.no{color:#c0504d}
+
+.topnums{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:12px 0}
+.topnums .tn{display:inline-flex;align-items:center;gap:4px}
+.topnums small{opacity:.7}
