@@ -145,8 +145,9 @@ const ROUND = { seconds: MODE_SECONDS[MODE], startedAt: Date.now(), end: null, e
 function resetRound() { Object.assign(ROUND, { seconds: MODE_SECONDS[MODE] || 60, startedAt: Date.now(), end: null, ends: 0, refreshes: 0, busy: false }); }
 /* What the Big/Small card shows right now, so a cycle end can tell "the server issued a NEW estimate" from "nothing new yet".
    prev = the newest estimate that has already been scored against its verified result; noNew = a cycle ended and no new result arrived. */
-const CYCLE = { shownId: null, prev: null, noNew: null };
-const resetCycle = () => Object.assign(CYCLE, { shownId: null, prev: null, noNew: null });
+const CYCLE = { shownId: null, prev: null, noNew: null, flashId: null };
+const estKey = p => (p.id != null ? String(p.id) : `proj:${p.target_label}:${p.cycle ? p.cycle.index : ""}`);
+const resetCycle = () => Object.assign(CYCLE, { shownId: null, prev: null, noNew: null, flashId: null });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 /* Called every tick with the end instant of the cycle currently shown. Returns true exactly once per elapsed boundary:
    the tracked end is replaced in the same synchronous step, so repeated ticks (or a tab that slept for several rounds) cannot fire twice. */
@@ -251,7 +252,7 @@ async function onRoundEnd() {
       const p = await api("/api/prediction/next");
       if (m !== MODE || cycle !== ROUND.ends) return;                      // mode switched, or a later cycle took over
       if (!p.available) return;                                            // no history to estimate from: nothing to wait for
-      if (p.id !== shown) { ROUND.refreshes += 1; await loadDash(); return; }
+      if (estKey(p) !== shown) { ROUND.refreshes += 1; await loadDash(); return; }
     }
     CYCLE.noNew = { cycle, at: Date.now() };                               // told to the user by updateEstimateNote(); never guessed around
   } catch (_) { CLOCK.reconcile = true; }
@@ -339,18 +340,23 @@ function renderNext(p, perf, stats) {
     const hint = el("p", { class: "bar-note" }, "An estimate needs confirmed past results. They come from the live feed (30 Sec, 1 Min) or from what you add on the Add rounds tab. Nothing is invented.");
     setBody(pick, el("p", { class: "muted" }, p.reason), hint); [reality, models].forEach(c => setBody(c, el("p", { class: "muted" }, p.reason))); return;
   }
-  if (p.id !== CYCLE.shownId) CYCLE.noNew = null;                      // a new estimate replaces the "nothing new" notice
-  CYCLE.shownId = p.id;
+  if (estKey(p) !== CYCLE.shownId) CYCLE.noNew = null;                      // a new estimate replaces the "nothing new" notice
+  CYCLE.shownId = estKey(p);
   const sig = p.signal, none = sig.level === "none", bt = perf && perf.backtest, c = bt && bt.consensus.bs;
+  const fresh = estKey(p) !== CYCLE.flashId; CYCLE.flashId = estKey(p);
   setBody(pick,
-    el("div", { class: "pickrow" }, el("span", { class: `orb size ${p.size.toLowerCase()} ${none ? "dim" : ""}` }, p.size.toUpperCase()),
+    CYCLE.prev ? el("div", { class: `cyclebar ${CYCLE.prev.bs_hit ? "hit" : "miss"}`, "data-testid": "prev-cycle" },
+      el("div", { class: "cb-l" }, el("span", { class: "cb-k" }, `Round ${CYCLE.prev.round} result`), numPill(CYCLE.prev.actual)),
+      el("div", { class: "cb-m" }, "our estimate was ", sizeChip(CYCLE.prev.size), " → ", el("b", {}, CYCLE.prev.bs_hit ? "HIT ✓" : "MISS ✗")),
+      el("div", { class: "cb-r" }, `Next round ${p.target_label}`)) : null,
+    el("div", { class: `pickrow${fresh ? " fresh" : ""}` }, el("span", { class: `orb size ${p.size.toLowerCase()} ${none ? "dim" : ""}` }, p.size.toUpperCase()),
       el("div", {}, el("div", { class: "pickname" }, p.size), el("div", { class: "muted" }, `estimate for round ${p.target_label} · Big = 5–9, Small = 0–4`),
         el("div", { style: "margin-top:8px" }, signalBadge(sig)))),
+    p.kind === "projection" ? el("div", { class: "nosig", "data-testid": "projection-note" }, el("strong", {}, "Projection, not a result and not scored. "), `The result of the round that just ended has not been verified yet, so this is calculated from all verified history for round ${p.target_label}.`) : null,
+    p.settling ? el("p", { class: "bar-note" }, "Waiting a few seconds for the last round's verified result…") : null,
     estimateNote(p),
     p.size_probs ? el("div", {}, el("div", { class: "bar-note" }, "Estimated chance (an uncertain estimate, not a validated forecast):"),
       SIZES.map(g => meter(g, p.size_probs[g], g.toLowerCase()))) : null,
-    CYCLE.prev ? el("p", { class: "bar-note", "data-testid": "prev-cycle" }, el("strong", {}, "Last cycle, verified: "), `the estimate for round ${CYCLE.prev.round} was `,
-      sizeChip(CYCLE.prev.size), " and the actual result was ", numPill(CYCLE.prev.actual), " → ", el("b", { class: CYCLE.prev.bs_hit ? "ok" : "no" }, CYCLE.prev.bs_hit ? "HIT ✓" : "MISS ✗"), ". A hit or a miss is one coin-flip-sized sample, not a trend.") : null,
     el("p", { class: "bar-note" }, `Model v${p.engine_version} · trained on ${p.n_history} rounds · built after confirmed round ${p.latest_result ? (p.latest_result.period_id || "#" + p.latest_result.seq) : "—"} · status: ${p.status === "pending" ? "waiting for result" : p.status}${p.created_at ? " · generated " + fmtTs(p.created_at) : ""}`),
     none ? el("div", { class: "nosig" }, el("strong", {}, "No proven edge. "), "On rounds it had not seen, this pick did no better than flipping a coin.") : null,
     el("details", {}, el("summary", { class: "muted" }, "Why this label?"),
@@ -424,14 +430,28 @@ function loadDash() {
   dashRun = (async () => { try { do { dashAgain = false; await loadDashNow(); } while (dashAgain); } finally { dashRun = null; } })();
   return dashRun;
 }
+
+/* Round history, rebuilt every time the dashboard is re-read (i.e. after every finished countdown that produced a new verified result). */
+let HIST_TOP = null;
+function renderCycleHist(hist) {
+  const card = $("#cyclehist"); if (!card) return;
+  const rows = ((hist && hist.predictions) || []).filter(x => x.actual != null).slice(0, 10);
+  if (!rows.length) { setBody(card, el("p", { class: "muted" }, "No finished rounds with an estimate yet. After the next countdown ends, the round, the verified result and HIT/MISS appear here.")); return; }
+  const hits = rows.filter(x => x.bs_hit).length, top = rows[0].round, isNew = top !== HIST_TOP && HIST_TOP !== null; HIST_TOP = top;
+  setBody(card,
+    el("p", { class: "bar-note", "data-testid": "cycle-hist-tally" }, `Last ${rows.length} rounds: ${hits} hit, ${rows.length - hits} miss (${Math.round(100 * hits / rows.length)}%). A coin flip gives about 50%.`),
+    el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, el("tr", {}, ["Round", "Result", "Actual", "Our estimate", "Outcome"].map(t => el("th", {}, t)))),
+      el("tbody", {}, rows.map((x, i) => el("tr", { class: i === 0 && isNew ? "newrow" : "" }, el("td", {}, x.round), el("td", {}, numPill(x.actual)), el("td", {}, sizeChip(sizeOf(x.actual))),
+        el("td", {}, sizeChip(x.size)), el("td", {}, el("b", { class: x.bs_hit ? "ok" : "no" }, x.bs_hit ? "HIT ✓" : "MISS ✗"))))))));
+}
 async function loadDashNow() {
   const m = MODE;
   try {
     const [p, r, perf, stats, sync, clk, hist] = await Promise.all([api("/api/prediction/next"), api("/api/results?limit=40"), api("/api/model-performance"),
-      api("/api/data/stats").catch(() => null), api("/api/sync/status").catch(() => null), fetchClock(), api("/api/prediction/history?limit=4").catch(() => null)]);
+      api("/api/data/stats").catch(() => null), api("/api/sync/status").catch(() => null), fetchClock(), api("/api/prediction/history?limit=10").catch(() => null)]);
     if (m !== MODE) return;                                          // stale answers for the previous mode
     CYCLE.prev = (hist && hist.predictions.find(x => x.actual != null)) || null;
-    perfCache = perf; if (stats) statsCache = stats; renderNext(p, perf, stats); lastLatest = r.results[0] || null;
+    perfCache = perf; if (stats) statsCache = stats; renderNext(p, perf, stats); renderCycleHist(hist); lastLatest = r.results[0] || null;
     lastSeen = clockKey(clk); CLOCK.reconcile = false;
     if (sync) { renderSync(sync, lastLatest); stateBanner(sync); } else hideConn();
     renderClock();
