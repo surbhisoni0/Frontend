@@ -213,3 +213,23 @@ test("a hanging side panel (accuracy stats, results) does not block the predicti
     assert.match(node("#lp-size").textContent, /^(SMALL|BIG)$/);
     assert.doesNotMatch(node("#conn").textContent || "", /Cannot load data/);
   } finally { restoreTime(); } });
+
+for (const [mode, P] of [["30s", 30], ["1min", 60]]) {
+  test(`${mode}: Live status card -- period, latest verified result, prediction and time left all move together over 4 cycles; the period is marked unconfirmed until the server confirms it`, async () => {
+    const S = await boot(mode, { live: true }); try {
+      const cur = () => node("#cur-period").textContent, nxt = () => node("#next-period").textContent;
+      const base = Number(cur().replace(/\D.*/, ""));
+      assert.doesNotMatch(cur(), /confirming/);
+      for (let c = 1; c <= 4; c++) {
+        await advance(((c * P - (NOW / 1000 - T0)) + 0.2) * 1000 + 100);          // 0.1 s after 00:00, before any answer from the server
+        assert.match(cur(), /confirming/, "rolled forward, but not shown as confirmed yet");
+        assert.equal(app.clockView(Date.now()).big, mode === "30s" ? "00:30" : "01:00", "countdown restarted at the full duration");
+        await advance(6000);                                                         // the clock was re-read at the boundary and the result arrived
+        const last = S.picks[S.picks.length - 1];
+        assert.equal(cur(), String(base + c), "period = server schedule, one step per completed round"); assert.equal(nxt(), String(base + c + 1));
+        assert.match(node("#clock").textContent, new RegExp("Latest verified result.*" + (last.label - 1)), "latest verified result moved to the newest confirmed round");
+        assert.equal(node("#lp-size").textContent, last.id % 2 ? "SMALL" : "BIG"); assert.equal(node("#lp-num").textContent, String((last.id * 3) % 10));
+        assert.match(node("#lp-note").textContent, new RegExp("for round " + last.label));
+      }
+    } finally { restoreTime(); } });
+}
