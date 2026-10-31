@@ -113,3 +113,6 @@ dl.kv{margin:0}
 .topnums{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:12px 0}
 .topnums .tn{display:inline-flex;align-items:center;gap:4px}
 .topnums small{opacity:.7}
+
+.lp-v.flash,#lp-num.flash{animation:lpflash 1.2s ease-out}
+@keyframes lpflash{0%{transform:scale(1.25);filter:brightness(1.6)}100%{transform:scale(1);filter:none}}
