@@ -94,7 +94,7 @@ function makeServer(P, { live = false, lag = 2.4, latency = 0, fail = false } = 
       const body = { "/api/prediction/next": () => S.next(), "/api/clock": () => S.clock(), "/api/results": () => ({ results: [] }), "/api/model-performance": () => ({ live: { metrics: { bs: { n: 0 } } }, backtest: null }),
         "/api/data/stats": () => ({}), "/api/prediction/history": () => ({ predictions: [] }) }[path];
       body ? respond(body()) : reject(new Error("HTTP 404"));
-    }), S.latency);
+    }), (S.slow && S.slow[path]) || S.latency);
   });
   return S;
 }
@@ -102,7 +102,8 @@ function makeServer(P, { live = false, lag = 2.4, latency = 0, fail = false } = 
 const pickText = () => node("#pick").textContent;
 const labelShown = () => (pickText().match(/estimate for round (\d+)/) || [])[1] || null;
 async function boot(mode, opts) {
-  installTime(); const S = makeServer(mode === "30s" ? 30 : 60, opts);
+  installTime(); app.resetDashForTest();                                    // a previous test's unfinished read must not be inherited
+  const S = makeServer(mode === "30s" ? 30 : 60, opts);
   const other = mode === "30s" ? "1min" : "30s";
   app.setMode(other).catch(() => {}); await advance(300);                  // MODE is "30s" at load: go through the other mode so setMode really runs for `mode`
   app.setMode(mode).catch(() => {}); await advance(300);
@@ -140,7 +141,7 @@ for (const [mode, P] of [["30s", 30], ["1min", 60]]) {
 }
 
 test("slow server (answers take longer than the cycle's patience): no overlap, no skipped cycle, and a late answer is never shown for a later cycle", async () => {
-  const S = await boot("30s", { latency: 12000 }); try {                    // every prediction read times out (8 s) and is aborted
+  const S = await boot("30s", { latency: 40000 }); try {                    // longer than every timeout (8 s cycle read, 30 s dashboard read): all aborted
     const before = labelShown();
     await advance(95000);
     assert.ok(S.maxInflight <= 2, "never more than one refresh in flight (plus the dashboard's own read): " + S.maxInflight);
@@ -204,3 +205,11 @@ for (const [mode, P] of [["30s", 30], ["1min", 60]]) {
       assert.equal(new Set(seen.map(x => x.join("|"))).size, seen.length, "a new prediction (number, side, round) after every completed cycle");
     } finally { restoreTime(); } });
 }
+
+test("a hanging side panel (accuracy stats, results) does not block the prediction or raise the 'Cannot load data' banner", async () => {
+  installTime(); app.resetDashForTest(); const S = makeServer(30); S.slow = { "/api/model-performance": 100000, "/api/results": 100000 }; try {
+    app.setMode("1min").catch(() => {}); await advance(300); app.setMode("30s").catch(() => {}); await advance(2000);
+    assert.equal(labelShown(), "200", "prediction is on screen within 2 s although two other panels have not answered");
+    assert.match(node("#lp-size").textContent, /^(SMALL|BIG)$/);
+    assert.doesNotMatch(node("#conn").textContent || "", /Cannot load data/);
+  } finally { restoreTime(); } });
