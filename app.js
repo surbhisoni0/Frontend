@@ -262,7 +262,10 @@ function tick() {
   if (v.endsAt != null && roundTick(ROUND, v.endsAt, Date.now() + pickOffset(CLOCK.samples))) onRoundEnd();
   if (CLOCK.data && CLOCK.data.countdown && CLOCK.data.countdown.source === "feed") {
     const loc = localCountdown(CLOCK.data, Date.now() + pickOffset(CLOCK.samples));
-    set("cur-period", loc.current || "—"); set("next-period", loc.next || "—");
+    /* Between 00:00 and the server's next answer the page has only rolled the number forward from the feed's schedule. It says so, and drops the
+       marker as soon as the server's own round end confirms the period (the clock is re-read right at every boundary). */
+    const mark = loc.rolled ? " · confirming…" : "";
+    set("cur-period", loc.current ? loc.current + mark : "—"); set("next-period", loc.next ? loc.next + mark : "—");
   }
   const b = document.getElementById("cd-badge"); if (b) { b.textContent = v.badge; b.className = `badge ${v.cls}`; }
   updateEstimateNote(); updateLivePred();
