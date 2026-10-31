@@ -40,11 +40,21 @@ async function api(path, opts = {}) {
   path = withMode(path);
   const headers = { ...(opts.headers || {}) };
   if (opts.method === "POST" && API_KEY()) headers["X-API-Key"] = API_KEY();
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), opts.timeoutMs || 60000);
+  const canRetry = !opts.method || opts.method === "GET";                                  // only idempotent reads are retried
   let r;
-  try { r = await fetch(path, { ...opts, headers, signal: ctl.signal, cache: "no-store" }); }
-  catch (e) { throw new Error(e && e.name === "AbortError" ? "the server did not answer in time" : "network error"); }
-  finally { clearTimeout(timer); }
+  for (let attempt = 0; ; attempt++) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), opts.timeoutMs || 60000);
+    try { r = await fetch(path, { ...opts, headers, signal: ctl.signal, cache: "no-store" }); }
+    catch (e) {
+      clearTimeout(timer);
+      if (e && e.name === "AbortError") throw new Error("the server did not answer in time");
+      if (canRetry && attempt < 1) { await sleep(1200); continue; }                       // one quick retry for a dropped connection
+      throw new Error("network error");
+    }
+    clearTimeout(timer);
+    if (canRetry && attempt < 1 && [502, 503, 504].includes(r.status)) { await sleep(1500); continue; }   // proxy/gateway hiccup or backend waking up
+    break;
+  }
   let body = null;
   try { body = await r.json(); } catch (_) { /* non-JSON */ }
   if (!r.ok) {
@@ -87,7 +97,7 @@ function lineChart(host, series, emptyMsg) {
    The SERVER decides which round is next and whether the schedule is verified (/api/clock). The browser only converts the
    server's absolute end-of-round timestamp into a countdown using a measured server-clock offset. It never advances a period
    number by itself: a round counts only once its result is confirmed by the server. */
-const CLOCK = { data: null, samples: [], failures: 0, lastOkAt: null, reconcile: false, timer: null, built: null };
+const CLOCK = { data: null, samples: [], failures: 0, lastOkAt: null, lastError: null, reconcile: false, timer: null, built: null };
 const fmtClock = ms => { const t = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
 const fmtTs = v => { const t = Date.parse(v); return Number.isNaN(t) ? String(v) : new Date(t).toLocaleString(); };
 
@@ -211,9 +221,11 @@ async function fetchClock() {
     const d = await api("/api/clock", { timeoutMs: 20000 }), t1 = Date.now();
     if (m !== MODE) return d;                                         // user switched mode meanwhile: drop this answer
     CLOCK.samples = [...CLOCK.samples.slice(-5), { rtt: t1 - t0, offset: d.server_epoch_ms - (t0 + t1) / 2 }];
-    CLOCK.data = d; CLOCK.failures = 0; CLOCK.lastOkAt = t1;
+    const wasDown = CLOCK.failures > 0;
+    CLOCK.data = d; CLOCK.failures = 0; CLOCK.lastOkAt = t1; CLOCK.lastError = null;
+    if (wasDown) { const c = $("#conn"); if (c && !c.hidden && /\bbad\b/.test(c.className || "")) hideConn(); }   // connection is back: clear the "Disconnected" banner at once
     return d;
-  } catch (e) { if (m === MODE) CLOCK.failures += 1; throw e; }
+  } catch (e) { if (m === MODE) { CLOCK.failures += 1; CLOCK.lastError = e && e.message; } throw e; }
 }
 
 function clockView(now = Date.now(), round = ROUND) {
@@ -343,15 +355,17 @@ async function pollOnce() {
   } catch (e) {
     if (epoch !== EPOCH) return;
     CLOCK.reconcile = true; tick();
-    showConn("bad", CLOCK.failures >= 3 ? "Disconnected from the server. Showing the last data received; retrying automatically." : "Connection problem. Retrying…");
+    const why = CLOCK.lastError ? ` (${CLOCK.lastError})` : "";
+    showConn("bad", CLOCK.failures >= 3 ? `Disconnected from the server${why}. Showing the last data received; retrying automatically.` : `Connection problem${why}. Retrying…`);
   }
-  schedulePoll();
+  try { schedulePoll(); } catch (_) { CLOCK.timer = setTimeout(pollOnce, 5000); }
 }
 function schedulePoll() {
   clearTimeout(CLOCK.timer);
   if (document.hidden) return;
   const loc = localCountdown(CLOCK.data, Date.now() + pickOffset(CLOCK.samples));
-  CLOCK.timer = setTimeout(pollOnce, pollDelay({ failures: CLOCK.failures, local: loc, pollMs }));
+  const d = pollDelay({ failures: CLOCK.failures, local: loc, pollMs });
+  CLOCK.timer = setTimeout(pollOnce, CLOCK.failures > 0 ? Math.min(d, 8000) : d);
 }
 function wakeUp() { clearTimeout(CLOCK.timer); CLOCK.reconcile = true; pollOnce(); }     // tab shown again / network back: reconcile now
 
@@ -861,4 +875,4 @@ function init() {
 }
 if (typeof document !== "undefined" && document.getElementById) init();
 
-if (typeof module !== "undefined" && module.exports) module.exports = { resetDashForTest: () => { dashRun = null; dashAgain = false; }, LIVE_PRED, setMode, onRoundEnd, tick, renderNext, loadDash, FLOW, CYCLE, EPOCH_OF: () => EPOCH, REFRESH_TRIES, REFRESH_GAP_MS, setPerf: (a, b) => { perfCache = a; statsCache = b; }, clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
+if (typeof module !== "undefined" && module.exports) module.exports = { api, fetchClock, resetDashForTest: () => { dashRun = null; dashAgain = false; }, LIVE_PRED, setMode, onRoundEnd, tick, renderNext, loadDash, FLOW, CYCLE, EPOCH_OF: () => EPOCH, REFRESH_TRIES, REFRESH_GAP_MS, setPerf: (a, b) => { perfCache = a; statsCache = b; }, clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
