@@ -167,11 +167,18 @@ function roundTick(round, endsAt, nowMs) {
 
 /* The prediction shown INSIDE the Live status card. It is only ever replaced by a newer valid estimate from the server, so the previous one stays
    visible while the next one is being prepared (tick() labels it as such). Never computed or invented in the browser. */
-const LIVE_PRED = { size: null, number: null, label: null, kind: null };
-const resetLivePred = () => Object.assign(LIVE_PRED, { size: null, number: null, label: null, kind: null });
+const LIVE_PRED = { size: null, number: null, label: null, kind: null, top3: null, big: null, prev: null, changedAt: 0, reason: null };
+const resetLivePred = () => Object.assign(LIVE_PRED, { size: null, number: null, label: null, kind: null, top3: null, big: null, prev: null, changedAt: 0, reason: null });
 function setLivePred(p) {
-  if (!p || !p.available) return;
-  Object.assign(LIVE_PRED, { size: p.size, number: p.top3 && p.top3.length ? p.top3[0] : null, label: p.target_label, kind: p.kind });
+  if (!p) return;
+  if (!p.available) { LIVE_PRED.reason = p.reason || "No estimate available yet."; updateLivePred(); return; }
+  const next = { size: p.size, number: p.top3 && p.top3.length ? p.top3[0] : null, label: p.target_label, kind: p.kind,
+    top3: p.top3 && p.top3.length ? p.top3.slice(0, 3) : null, big: p.size_probs && p.size_probs.Big != null ? p.size_probs.Big : null };
+  if (next.label !== LIVE_PRED.label) {                                       // a NEW estimate for a NEW round: remember the one it replaces
+    LIVE_PRED.prev = LIVE_PRED.label != null ? { number: LIVE_PRED.number, size: LIVE_PRED.size, top3: LIVE_PRED.top3 } : null;
+    LIVE_PRED.changedAt = Date.now();
+  }
+  Object.assign(LIVE_PRED, next, { reason: null });
   updateLivePred();
 }
 function updateLivePred() {
@@ -179,13 +186,22 @@ function updateLivePred() {
   const has = LIVE_PRED.size != null, d = CLOCK.data;
   set("lp-size", has ? LIVE_PRED.size.toUpperCase() : "—");
   set("lp-num", has && LIVE_PRED.number != null ? String(LIVE_PRED.number) : "—");
-  let note = has ? `for round ${LIVE_PRED.label}${LIVE_PRED.kind === "projection" ? " · projection from verified history, not scored" : ""}` : "waiting for the first estimate";
+  set("lp-top3", has && LIVE_PRED.top3 ? `Likely numbers: ${LIVE_PRED.top3.join(" · ")}` : "");
+  set("lp-prob", has && LIVE_PRED.big != null ? `Big ${(LIVE_PRED.big * 100).toFixed(1)}% · Small ${((1 - LIVE_PRED.big) * 100).toFixed(1)}%` : "");
+  let note = has ? `for round ${LIVE_PRED.label}${LIVE_PRED.kind === "projection" ? " · projection from verified history, not scored" : ""}`
+    : LIVE_PRED.reason ? LIVE_PRED.reason : "loading the first estimate…";
+  if (has && LIVE_PRED.prev && Date.now() - LIVE_PRED.changedAt < 60000) {          // say plainly whether this cycle's estimate differs from the last one
+    const pv = LIVE_PRED.prev, same = pv.number === LIVE_PRED.number && pv.size === LIVE_PRED.size;
+    note += same ? ` · same top pick as the previous round (${pv.number} · ${pv.size})` : ` · changed from ${pv.number} · ${pv.size}`;
+  }
   if (has && d && d.countdown && d.countdown.source === "feed") {
     const loc = localCountdown(d, Date.now() + pickOffset(CLOCK.samples));
     if (loc.current && loc.current !== LIVE_PRED.label) note = `previous estimate (round ${LIVE_PRED.label}) · updating from the latest verified result…`;
   }
   set("lp-note", note);
   const sz = document.getElementById("lp-size"); if (sz && sz.className !== undefined) sz.className = `lp-v ${has ? LIVE_PRED.size.toLowerCase() : ""}`;
+  const fresh = has && Date.now() - LIVE_PRED.changedAt < 2500;                       // brief highlight whenever a new round's estimate arrives
+  ["lp-num", "lp-size"].forEach(id => { const n = document.getElementById(id); if (n) n.classList.toggle("flash", fresh); });
 }
 const clockKey = d => (d && d.latest_confirmed ? `${d.latest_confirmed.seq}|${d.next_round ? d.next_round.label : "-"}` : "none");
 
@@ -247,8 +263,8 @@ function renderClock() {
       fact("Latest verified result", lc ? [el("b", { "data-testid": "latest-confirmed" }, lc.period_id || "#" + lc.seq), " ", numPill(lc.number)] : "—",
         lc && lc.timestamp ? el("div", { class: "bar-note" }, fmtTs(lc.timestamp)) : null),
       live ? null : fact("Next round", el("b", {}, nr ? nr.label : "—"), nr && nr.id_kind === "sequence" ? el("div", { class: "bar-note" }, "row number: the stored data has no period IDs") : null),
-      fact("Predicted number", el("b", { id: "lp-num", "data-testid": "live-pred-number" }, "—")),
-      fact("Prediction", el("b", { id: "lp-size", class: "lp-v", "data-testid": "live-pred-size" }, "—"), el("div", { class: "bar-note", id: "lp-note" }, "")),
+      fact("Predicted number", el("b", { id: "lp-num", "data-testid": "live-pred-number" }, "—"), el("div", { class: "bar-note", id: "lp-top3" }, "")),
+      fact("Prediction", el("b", { id: "lp-size", class: "lp-v", "data-testid": "live-pred-size" }, "—"), el("div", { class: "bar-note", id: "lp-prob" }, ""), el("div", { class: "bar-note", id: "lp-note" }, "")),
       fact("Time left", el("div", { class: "cd", id: "cd-big", role: "timer", "data-testid": "countdown" }, fmtClock(ROUND.seconds * 1000)))),
     el("p", { class: "bar-note", id: "cd-note", "aria-live": "polite" }, ""),
     el("p", { class: "bar-note" }, schedLine));
@@ -322,7 +338,7 @@ async function pollOnce() {
   try {
     const d = await fetchClock();
     if (epoch !== EPOCH) return;                                      // mode changed meanwhile: setMode() owns the new poll chain
-    if (CLOCK.reconcile || (lastSeen !== null && clockKey(d) !== lastSeen)) await refreshAll();   // new result, or we were offline: re-read everything
+    if (CLOCK.reconcile || (lastSeen !== null && clockKey(d) !== lastSeen) || (LIVE_PRED.size == null && !LIVE_PRED.reason)) await refreshAll();   // new result, or we were offline: re-read everything
     else { renderClock(); }
   } catch (e) {
     if (epoch !== EPOCH) return;
