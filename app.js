@@ -192,7 +192,7 @@ const clockKey = d => (d && d.latest_confirmed ? `${d.latest_confirmed.seq}|${d.
 async function fetchClock() {
   const t0 = Date.now(), m = MODE;
   try {
-    const d = await api("/api/clock", { timeoutMs: 8000 }), t1 = Date.now();
+    const d = await api("/api/clock", { timeoutMs: 20000 }), t1 = Date.now();
     if (m !== MODE) return d;                                         // user switched mode meanwhile: drop this answer
     CLOCK.samples = [...CLOCK.samples.slice(-5), { rtt: t1 - t0, offset: d.server_epoch_ms - (t0 + t1) / 2 }];
     CLOCK.data = d; CLOCK.failures = 0; CLOCK.lastOkAt = t1;
@@ -306,7 +306,7 @@ async function refreshEstimate(epoch) {
       if (estKey(p) !== shown) {
         ROUND.refreshes += 1; PRE.p = p; PRE.at = Date.now(); PRE.epoch = epoch;
         renderNext(p, perfCache, statsCache);                              // visible straight away; the rest of the dashboard follows
-        await loadDash(); return;
+        loadDash().catch(() => {}); return;                                // the other panels follow on their own; they never hold up the next cycle
       }
     }
     CYCLE.noNew = { cycle, at: Date.now() };                               // told to the user by updateEstimateNote(); never guessed around
@@ -505,21 +505,32 @@ function renderCycleHist(hist) {
       el("tbody", {}, rows.map((x, i) => el("tr", { class: i === 0 && isNew ? "newrow" : "" }, el("td", {}, x.round), el("td", {}, numPill(x.actual)), el("td", {}, sizeChip(sizeOf(x.actual))),
         el("td", {}, sizeChip(x.size)), el("td", {}, el("b", { class: x.bs_hit ? "ok" : "no" }, x.bs_hit ? "HIT ✓" : "MISS ✗"))))))));
 }
+/* One slow or failing request must not throw the whole dashboard away. The estimate and the clock are what matter, so they are drawn as soon as they
+   arrive; every other panel that did not answer simply keeps what it showed before. The error banner appears only when NEITHER of them could be read. */
 async function loadDashNow() {
   const m = MODE, pre = PRE.p && PRE.epoch === EPOCH && Date.now() - PRE.at < 3000 ? PRE.p : null; PRE.p = null;
+  const errs = [];
+  const soft = pr => pr.catch(e => { errs.push(e); return null; });
   try {
-    const [p, r, perf, stats, sync, clk, hist] = await Promise.all([pre ? Promise.resolve(pre) : api("/api/prediction/next"), api("/api/results?limit=40"), api("/api/model-performance"),
-      api("/api/data/stats").catch(() => null), api("/api/sync/status").catch(() => null), fetchClock(), api("/api/prediction/history?limit=10").catch(() => null)]);
+    const predP = soft(pre ? Promise.resolve(pre) : api("/api/prediction/next", { timeoutMs: 30000 })), clkP = soft(fetchClock());
+    const [p, clk] = await Promise.all([predP, clkP]);                      // the two things on screen first
+    if (m !== MODE) return;
+    if (p) renderNext(p, perfCache, statsCache);                            // visible immediately, even while the slower panels are still loading
+    if (clk) { lastSeen = clockKey(clk); CLOCK.reconcile = false; renderClock(); }
+    if (!p && !clk) throw errs[0] || new Error("no answer");
+    const [r, perf, stats, sync, hist] = await Promise.all([soft(api("/api/results?limit=40")), soft(api("/api/model-performance")),
+      api("/api/data/stats").catch(() => null), api("/api/sync/status").catch(() => null), api("/api/prediction/history?limit=10").catch(() => null)]);
     if (m !== MODE) return;                                          // stale answers for the previous mode
-    CYCLE.prev = (hist && hist.predictions.find(x => x.actual != null)) || null;
-    perfCache = perf; if (stats) statsCache = stats; renderNext(p, perf, stats); renderCycleHist(hist); lastLatest = r.results[0] || null;
-    lastSeen = clockKey(clk); CLOCK.reconcile = false;
+    CYCLE.prev = (hist && hist.predictions.find(x => x.actual != null)) || CYCLE.prev;
+    if (perf) perfCache = perf; if (stats) statsCache = stats;
+    if (p) renderNext(p, perfCache, statsCache);
+    if (hist) renderCycleHist(hist);
+    if (r) { lastLatest = r.results[0] || null; clear($("#strip")).append(...r.results.slice().reverse().map(x => chip(x.number))); }
     if (sync) { renderSync(sync, lastLatest); stateBanner(sync); } else hideConn();
-    renderClock();
-    clear($("#strip")).append(...r.results.slice().reverse().map(x => chip(x.number)));
+    if (clk) { renderClock(); if (!p || !r || !perf) CLOCK.reconcile = true; }     // something was slow: the poll loop reads it again soon
     loadStats().catch(() => {});
     if ($("#tab-trends").classList.contains("on")) loadTrends().catch(() => {});      // new round arrived while this tab is open
-  } catch (e) { CLOCK.reconcile = true; tick(); showConn("bad", `Cannot load data: ${e.message}. Showing the last data received.`); }
+  } catch (e) { CLOCK.reconcile = true; tick(); showConn("bad", `Cannot load data: ${e.message}. Showing the last data received; retrying automatically.`); }
 }
 async function refreshAll() {
   const b = $("#refresh"); b.disabled = true; b.textContent = "Refreshing…";
@@ -831,4 +842,4 @@ function init() {
 }
 if (typeof document !== "undefined" && document.getElementById) init();
 
-if (typeof module !== "undefined" && module.exports) module.exports = { LIVE_PRED, setMode, onRoundEnd, tick, renderNext, loadDash, FLOW, CYCLE, EPOCH_OF: () => EPOCH, REFRESH_TRIES, REFRESH_GAP_MS, setPerf: (a, b) => { perfCache = a; statsCache = b; }, clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
+if (typeof module !== "undefined" && module.exports) module.exports = { resetDashForTest: () => { dashRun = null; dashAgain = false; }, LIVE_PRED, setMode, onRoundEnd, tick, renderNext, loadDash, FLOW, CYCLE, EPOCH_OF: () => EPOCH, REFRESH_TRIES, REFRESH_GAP_MS, setPerf: (a, b) => { perfCache = a; statsCache = b; }, clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
