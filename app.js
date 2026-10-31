@@ -155,7 +155,7 @@ function resetRound() {
    prev = the newest estimate that has already been scored against its verified result; noNew = a cycle ended and no new result arrived. */
 const CYCLE = { shownId: null, prev: null, noNew: null, flashId: null };
 const estKey = p => (p.id != null ? String(p.id) : `proj:${p.target_label}:${p.cycle ? p.cycle.index : ""}`);
-const resetCycle = () => Object.assign(CYCLE, { shownId: null, prev: null, noNew: null, flashId: null });
+const resetCycle = () => { Object.assign(CYCLE, { shownId: null, prev: null, noNew: null, flashId: null }); resetLivePred(); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 /* Called every tick with the end instant of the cycle currently shown. Returns true exactly once per elapsed boundary:
    the tracked end is replaced in the same synchronous step, so repeated ticks (or a tab that slept for several rounds) cannot fire twice. */
@@ -165,6 +165,28 @@ function roundTick(round, endsAt, nowMs) {
   return false;
 }
 
+/* The prediction shown INSIDE the Live status card. It is only ever replaced by a newer valid estimate from the server, so the previous one stays
+   visible while the next one is being prepared (tick() labels it as such). Never computed or invented in the browser. */
+const LIVE_PRED = { size: null, number: null, label: null, kind: null };
+const resetLivePred = () => Object.assign(LIVE_PRED, { size: null, number: null, label: null, kind: null });
+function setLivePred(p) {
+  if (!p || !p.available) return;
+  Object.assign(LIVE_PRED, { size: p.size, number: p.top3 && p.top3.length ? p.top3[0] : null, label: p.target_label, kind: p.kind });
+  updateLivePred();
+}
+function updateLivePred() {
+  const set = (id, txt) => { const n = document.getElementById(id); if (n && n.textContent !== txt) n.textContent = txt; };
+  const has = LIVE_PRED.size != null, d = CLOCK.data;
+  set("lp-size", has ? LIVE_PRED.size.toUpperCase() : "—");
+  set("lp-num", has && LIVE_PRED.number != null ? String(LIVE_PRED.number) : "—");
+  let note = has ? `for round ${LIVE_PRED.label}${LIVE_PRED.kind === "projection" ? " · projection from verified history, not scored" : ""}` : "waiting for the first estimate";
+  if (has && d && d.countdown && d.countdown.source === "feed") {
+    const loc = localCountdown(d, Date.now() + pickOffset(CLOCK.samples));
+    if (loc.current && loc.current !== LIVE_PRED.label) note = `previous estimate (round ${LIVE_PRED.label}) · updating from the latest verified result…`;
+  }
+  set("lp-note", note);
+  const sz = document.getElementById("lp-size"); if (sz && sz.className !== undefined) sz.className = `lp-v ${has ? LIVE_PRED.size.toLowerCase() : ""}`;
+}
 const clockKey = d => (d && d.latest_confirmed ? `${d.latest_confirmed.seq}|${d.next_round ? d.next_round.label : "-"}` : "none");
 
 async function fetchClock() {
@@ -210,6 +232,7 @@ function clockView(now = Date.now(), round = ROUND) {
 function renderClock() {
   const d = CLOCK.data, card = $("#clock"); if (!card) return;
   const lc = d && d.latest_confirmed, nr = d && d.next_round, sc = (d && d.schedule) || {}, live = !!(d && d.countdown && d.countdown.source === "feed");
+  const confirmed = !!(d && CLOCK.failures === 0 && (live || sc.verified));              // only claim server verification when the server actually confirmed the schedule
   const fact = (k, ...v) => el("div", { class: "fact" }, el("span", {}, k), el("div", {}, ...v));
   const schedLine = !d ? `Local ${ROUND.seconds}-second timer. The server has not confirmed the round schedule yet.`
     : live
@@ -224,10 +247,13 @@ function renderClock() {
       fact("Latest verified result", lc ? [el("b", { "data-testid": "latest-confirmed" }, lc.period_id || "#" + lc.seq), " ", numPill(lc.number)] : "—",
         lc && lc.timestamp ? el("div", { class: "bar-note" }, fmtTs(lc.timestamp)) : null),
       live ? null : fact("Next round", el("b", {}, nr ? nr.label : "—"), nr && nr.id_kind === "sequence" ? el("div", { class: "bar-note" }, "row number: the stored data has no period IDs") : null),
+      fact("Predicted number", el("b", { id: "lp-num", "data-testid": "live-pred-number" }, "—")),
+      fact("Prediction", el("b", { id: "lp-size", class: "lp-v", "data-testid": "live-pred-size" }, "—"), el("div", { class: "bar-note", id: "lp-note" }, "")),
       fact("Time left", el("div", { class: "cd", id: "cd-big", role: "timer", "data-testid": "countdown" }, fmtClock(ROUND.seconds * 1000)))),
     el("p", { class: "bar-note", id: "cd-note", "aria-live": "polite" }, ""),
     el("p", { class: "bar-note" }, schedLine));
-  tick();
+  const h = card.querySelector("small"); if (h) h.textContent = confirmed ? "verified by the server" : "not verified by the server yet";
+  updateLivePred(); tick();
 }
 
 function tick() {
@@ -239,7 +265,7 @@ function tick() {
     set("cur-period", loc.current || "—"); set("next-period", loc.next || "—");
   }
   const b = document.getElementById("cd-badge"); if (b) { b.textContent = v.badge; b.className = `badge ${v.cls}`; }
-  updateEstimateNote();
+  updateEstimateNote(); updateLivePred();
   const u = document.getElementById("updated");
   if (u && CLOCK.lastOkAt) u.textContent = `${CLOCK.failures ? "Last updated" : "Updated"} ${new Date(CLOCK.lastOkAt).toLocaleTimeString()}`;
 }
@@ -371,6 +397,7 @@ function renderNext(p, perf, stats) {
     const hint = el("p", { class: "bar-note" }, "An estimate needs confirmed past results. They come from the live feed (30 Sec, 1 Min) or from what you add on the Add rounds tab. Nothing is invented.");
     setBody(pick, el("p", { class: "muted" }, p.reason), hint); [reality, models].forEach(c => setBody(c, el("p", { class: "muted" }, p.reason))); return;
   }
+  setLivePred(p);
   if (estKey(p) !== CYCLE.shownId) CYCLE.noNew = null;                      // a new estimate replaces the "nothing new" notice
   CYCLE.shownId = estKey(p);
   const sig = p.signal, none = sig.level === "none", bt = perf && perf.backtest, c = bt && bt.consensus.bs;
@@ -804,4 +831,4 @@ function init() {
 }
 if (typeof document !== "undefined" && document.getElementById) init();
 
-if (typeof module !== "undefined" && module.exports) module.exports = { setMode, onRoundEnd, tick, renderNext, loadDash, FLOW, CYCLE, EPOCH_OF: () => EPOCH, REFRESH_TRIES, REFRESH_GAP_MS, setPerf: (a, b) => { perfCache = a; statsCache = b; }, clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
+if (typeof module !== "undefined" && module.exports) module.exports = { LIVE_PRED, setMode, onRoundEnd, tick, renderNext, loadDash, FLOW, CYCLE, EPOCH_OF: () => EPOCH, REFRESH_TRIES, REFRESH_GAP_MS, setPerf: (a, b) => { perfCache = a; statsCache = b; }, clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
