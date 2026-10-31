@@ -142,7 +142,15 @@ function cycleAt(anchorMs, seconds, nowMs) {
   return { cycle: k, remainingMs: anchorMs + (k + 1) * P - nowMs };
 }
 const ROUND = { seconds: MODE_SECONDS[MODE], startedAt: Date.now(), end: null, ends: 0, refreshes: 0, busy: false };
-function resetRound() { Object.assign(ROUND, { seconds: MODE_SECONDS[MODE] || 60, startedAt: Date.now(), end: null, ends: 0, refreshes: 0, busy: false }); }
+/* EPOCH changes whenever the timer mode changes. Every asynchronous step remembers the epoch it started in and stops silently when it no longer
+   matches, so nothing started for the old mode can touch the new one. FLOW is the single per-cycle refresh runner (see onRoundEnd). */
+let EPOCH = 0;
+const FLOW = { running: false, queued: false, promise: null, requests: 0 };
+const PRE = { p: null, at: 0, epoch: -1 };                           // the answer a cycle refresh just read, handed to loadDash so it is not asked for twice
+function resetRound() {
+  EPOCH += 1; Object.assign(FLOW, { running: false, queued: false, promise: null }); PRE.p = null;
+  Object.assign(ROUND, { seconds: MODE_SECONDS[MODE] || 60, startedAt: Date.now(), end: null, ends: 0, refreshes: 0, busy: false });
+}
 /* What the Big/Small card shows right now, so a cycle end can tell "the server issued a NEW estimate" from "nothing new yet".
    prev = the newest estimate that has already been scored against its verified result; noNew = a cycle ended and no new result arrived. */
 const CYCLE = { shownId: null, prev: null, noNew: null, flashId: null };
@@ -237,35 +245,58 @@ function tick() {
 }
 
 /* A cycle just ended (the timer reached zero and restarted). The next estimate can only be built from the VERIFIED result of the cycle that
-   ended, and the server stores that result a moment after the boundary, so asking once at 00:00 is too early. Ask again every 2 s for up to
-   one cycle (at most 8 tries), with the light prediction call only, and re-read the dashboard ONCE when the server has issued a NEW estimate.
-   If none arrives, the estimate is left untouched and labelled as unchanged: nothing is invented and nothing is re-rolled.
-   Skipped while the tab is hidden or the server is unreachable: wakeUp() / the poll loop reconcile everything in those cases. */
-async function onRoundEnd() {
-  if (document.hidden || ROUND.busy || CLOCK.failures > 0) return;
-  ROUND.busy = true;
-  const m = MODE, cycle = ROUND.ends, shown = CYCLE.shownId, tries = Math.max(2, Math.min(8, Math.floor(ROUND.seconds / 4)));
+   ended, and the server stores that result a moment after the boundary (it holds the old answer for ~5 s), so asking once at 00:00 is too early.
+   ONE runner does this for the whole page:
+   - it never runs twice at once; a boundary that arrives while it is busy (slow server) is remembered ONCE and handled right after, for the newest cycle,
+     so no cycle is skipped and no stale answer is shown for a later cycle;
+   - it asks at most REFRESH_TRIES times, REFRESH_GAP_MS apart, each with a short timeout, and stops as soon as the server has issued a NEW estimate;
+   - the new estimate is drawn immediately, then the rest of the dashboard is re-read once;
+   - an answer that arrives after the cycle (or the timer mode) it was asked for has passed is thrown away.
+   If no new estimate arrives the old one stays, labelled as unchanged: nothing is invented. Skipped while the tab is hidden or the server is
+   unreachable: wakeUp() / the poll loop reconcile everything in those cases. */
+const REFRESH_TRIES = 5, REFRESH_GAP_MS = 2000, REFRESH_TIMEOUT_MS = 8000;
+function onRoundEnd() {
+  if (FLOW.running) { FLOW.queued = true; return FLOW.promise; }
+  FLOW.running = true; FLOW.queued = false;
+  const epoch = EPOCH;
+  FLOW.promise = (async () => {
+    try { do { FLOW.queued = false; await refreshEstimate(epoch); } while (FLOW.queued && epoch === EPOCH); }
+    finally { if (epoch === EPOCH) { FLOW.running = false; FLOW.promise = null; } }
+  })();
+  return FLOW.promise;
+}
+async function refreshEstimate(epoch) {
+  if (document.hidden || CLOCK.failures > 0) { CLOCK.reconcile = true; return; }
+  const cycle = ROUND.ends, shown = CYCLE.shownId, stale = () => epoch !== EPOCH || cycle !== ROUND.ends || CYCLE.shownId !== shown;
   try {
     fetchClock().catch(() => {});                                          // keep the period label / state fresh; the estimate is what we wait for
-    for (let i = 0; i < tries; i++) {
-      if (i) await sleep(2000);
-      const p = await api("/api/prediction/next");
-      if (m !== MODE || cycle !== ROUND.ends) return;                      // mode switched, or a later cycle took over
+    for (let i = 0; i < REFRESH_TRIES; i++) {
+      if (i) await sleep(REFRESH_GAP_MS);
+      if (stale()) return;
+      FLOW.requests += 1;
+      const p = await api("/api/prediction/next", { timeoutMs: REFRESH_TIMEOUT_MS });
+      if (stale()) return;                                                 // mode switched, a later cycle took over, or another path already refreshed it
       if (!p.available) return;                                            // no history to estimate from: nothing to wait for
-      if (estKey(p) !== shown) { ROUND.refreshes += 1; await loadDash(); return; }
+      if (estKey(p) !== shown) {
+        ROUND.refreshes += 1; PRE.p = p; PRE.at = Date.now(); PRE.epoch = epoch;
+        renderNext(p, perfCache, statsCache);                              // visible straight away; the rest of the dashboard follows
+        await loadDash(); return;
+      }
     }
     CYCLE.noNew = { cycle, at: Date.now() };                               // told to the user by updateEstimateNote(); never guessed around
-  } catch (_) { CLOCK.reconcile = true; }
-  finally { ROUND.busy = false; }
+  } catch (_) { if (epoch === EPOCH) CLOCK.reconcile = true; }
 }
 
 async function pollOnce() {
   if (document.hidden) return;                                        // resumes on visibilitychange
+  const epoch = EPOCH;
   try {
     const d = await fetchClock();
+    if (epoch !== EPOCH) return;                                      // mode changed meanwhile: setMode() owns the new poll chain
     if (CLOCK.reconcile || (lastSeen !== null && clockKey(d) !== lastSeen)) await refreshAll();   // new result, or we were offline: re-read everything
     else { renderClock(); }
   } catch (e) {
+    if (epoch !== EPOCH) return;
     CLOCK.reconcile = true; tick();
     showConn("bad", CLOCK.failures >= 3 ? "Disconnected from the server. Showing the last data received; retrying automatically." : "Connection problem. Retrying…");
   }
@@ -448,9 +479,9 @@ function renderCycleHist(hist) {
         el("td", {}, sizeChip(x.size)), el("td", {}, el("b", { class: x.bs_hit ? "ok" : "no" }, x.bs_hit ? "HIT ✓" : "MISS ✗"))))))));
 }
 async function loadDashNow() {
-  const m = MODE;
+  const m = MODE, pre = PRE.p && PRE.epoch === EPOCH && Date.now() - PRE.at < 3000 ? PRE.p : null; PRE.p = null;
   try {
-    const [p, r, perf, stats, sync, clk, hist] = await Promise.all([api("/api/prediction/next"), api("/api/results?limit=40"), api("/api/model-performance"),
+    const [p, r, perf, stats, sync, clk, hist] = await Promise.all([pre ? Promise.resolve(pre) : api("/api/prediction/next"), api("/api/results?limit=40"), api("/api/model-performance"),
       api("/api/data/stats").catch(() => null), api("/api/sync/status").catch(() => null), fetchClock(), api("/api/prediction/history?limit=10").catch(() => null)]);
     if (m !== MODE) return;                                          // stale answers for the previous mode
     CYCLE.prev = (hist && hist.predictions.find(x => x.actual != null)) || null;
@@ -756,9 +787,10 @@ function bindModes() {
   host.addEventListener("click", e => { const b = e.target.closest("button[data-mode]"); if (b && TIMER_MODES.includes(b.dataset.mode)) setMode(b.dataset.mode); });
   syncModeButtons();
 }
+let TICK = null;
 function init() {
   MODE = "30s"; resetRound(); bindModes();                           // 30 Sec is selected and its countdown starts right now
-  renderClock(); setInterval(tick, 250);                              // display only: no network, derived from the clock
+  renderClock(); if (TICK) clearInterval(TICK); TICK = setInterval(tick, 250);                              // display only: no network, derived from the clock
 
   $("#open-stats").onclick = () => showTab("stats");
   $("#tabs").addEventListener("click", e => {
@@ -772,4 +804,4 @@ function init() {
 }
 if (typeof document !== "undefined" && document.getElementById) init();
 
-if (typeof module !== "undefined" && module.exports) module.exports = { clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
+if (typeof module !== "undefined" && module.exports) module.exports = { setMode, onRoundEnd, tick, renderNext, loadDash, FLOW, CYCLE, EPOCH_OF: () => EPOCH, REFRESH_TRIES, REFRESH_GAP_MS, setPerf: (a, b) => { perfCache = a; statsCache = b; }, clockView, CLOCK, ROUND, cycleAt, roundTick, resetRound, TIMER_MODES, MODE_SECONDS, MODE_LABEL, localCountdown, pollDelay, pickOffset, fmtClock, clockKey, trendStats, runsOf, streakInfo, assumedNote };
