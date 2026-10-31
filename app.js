@@ -311,7 +311,7 @@ function tick() {
    - an answer that arrives after the cycle (or the timer mode) it was asked for has passed is thrown away.
    If no new estimate arrives the old one stays, labelled as unchanged: nothing is invented. Skipped while the tab is hidden or the server is
    unreachable: wakeUp() / the poll loop reconcile everything in those cases. */
-const REFRESH_TRIES = 5, REFRESH_GAP_MS = 2000, REFRESH_TIMEOUT_MS = 8000;
+const REFRESH_TRIES = 8, REFRESH_GAP_MS = 1000, REFRESH_TIMEOUT_MS = 8000;   // was 5 x 2 s: the new estimate showed up to 2 s after the server had it. Now <= 1 s (the server answer is cheap, see predictor_service._numbers)
 function onRoundEnd() {
   if (FLOW.running) { FLOW.queued = true; return FLOW.promise; }
   FLOW.running = true; FLOW.queued = false;
