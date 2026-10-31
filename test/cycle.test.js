@@ -68,7 +68,7 @@ function makeServer(P, { live = false, lag = 2.4, latency = 0, fail = false } = 
     arrivals();
     const t = sec(), cur = cyc(t), into = t - cur * P, p = S.picks[S.picks.length - 1];
     const missed = Math.max(0, cur - cyc(Math.min(p.made, t))), settling = missed === 1 && into < 5, proj = missed >= 1 && !settling;
-    return { available: true, kind: proj ? "projection" : "pick", id: proj ? null : p.id, status: proj ? "projection" : "pending", size: "Small",
+    return { available: true, kind: proj ? "projection" : "pick", id: proj ? null : p.id, status: proj ? "projection" : "pending", size: p.id % 2 ? "Small" : "Big", top3: [(p.id * 3) % 10, (p.id * 3 + 1) % 10, (p.id * 3 + 2) % 10],
       target_label: String(proj ? p.label + missed : p.label), target_id_kind: "period_id", engine_version: "1.0.0", n_history: 200,
       latest_result: { period_id: String(p.label - 1), seq: 199 + p.id, number: 3 }, created_at: new Date(NOW).toISOString(),
       signal: { level: "none", label: "NO STRONG SIGNAL", reasons: [] }, size_probs: { Small: 0.52, Big: 0.48 }, model_scores: { CumFreq: Array(10).fill(0.1) },
@@ -77,7 +77,7 @@ function makeServer(P, { live = false, lag = 2.4, latency = 0, fail = false } = 
   };
   S.clock = () => {
     arrivals();
-    const t = sec(), end = (cyc(t) + 1) * P, p = S.picks[S.picks.length - 1], cur = 20261029100010000 + 200 + cyc(t);
+    const t = sec(), end = (cyc(t) + 1) * P, p = S.picks[S.picks.length - 1], cur = 200 + cyc(t);
     return { server_epoch_ms: NOW, schedule: { verified: true, period_seconds: P, late_grace_seconds: 20 },
       countdown: { state: "open", source: "feed", round_ends_at: new Date((T0 + end) * 1000).toISOString(), period_seconds: P,
         current_period: String(BigInt(cur)), next_period: String(BigInt(cur) + 1n), awaiting_results: [] },
@@ -183,3 +183,24 @@ test("switching timer modes repeatedly leaves one display interval, one runner, 
     assert.equal(app.FLOW.running === false || app.FLOW.promise != null, true);
     assert.ok(S.calls.every(c => !c.path.startsWith("/api/prediction/next") || true));
   } finally { restoreTime(); } });
+
+for (const [mode, P] of [["30s", 30], ["1min", 60]]) {
+  test(`${mode}: the Live status card shows the predicted number and BIG/SMALL, both change together every cycle, and the old pair stays until the new one is ready`, async () => {
+    const S = await boot(mode, { live: true }); try {
+      const pair = () => [node("#lp-size").textContent, node("#lp-num").textContent, node("#lp-note").textContent];
+      const seen = [pair()];
+      assert.match(seen[0][0], /^(SMALL|BIG)$/); assert.match(seen[0][1], /^\d$/);
+      for (let c = 1; c <= 4; c++) {
+        await advance(((c * P - (NOW / 1000 - T0)) + 0.2) * 1000 + 1000);        // 1 s after 00:00: the result has not arrived yet (it comes after 2.4 s)
+        const during = pair();
+        assert.deepEqual(during.slice(0, 2), seen[seen.length - 1].slice(0, 2), "previous prediction stays visible while the next is prepared");
+        assert.match(during[2], /previous estimate .* updating/);
+        await advance(4000);
+        const now = pair(), last = S.picks[S.picks.length - 1];
+        assert.equal(now[0], last.id % 2 ? "SMALL" : "BIG"); assert.equal(now[1], String((last.id * 3) % 10));
+        assert.match(now[2], new RegExp("for round " + last.label)); assert.doesNotMatch(now[2], /previous estimate/);
+        seen.push(now);
+      }
+      assert.equal(new Set(seen.map(x => x.join("|"))).size, seen.length, "a new prediction (number, side, round) after every completed cycle");
+    } finally { restoreTime(); } });
+}
