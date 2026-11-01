@@ -451,7 +451,7 @@ function renderNext(p, perf, stats) {
     estimateNote(p),
     p.size_probs ? el("div", {}, el("div", { class: "bar-note" }, "Estimated chance (an uncertain estimate, not a validated forecast):"),
       SIZES.map(g => meter(g, p.size_probs[g], g.toLowerCase()))) : null,
-    p.confidence ? el("div", { class: "bar-note", "data-testid": "confidence" }, el("strong", {}, `Confidence: ${pct(p.confidence.calibrated)}`),
+    p.confidence ? el("div", { class: "bar-note", "data-testid": "confidence" }, p.confidence.abstain ? el("strong", { "data-testid": "no-prediction" }, "NO PREDICTION · ") : null, el("strong", {}, `Confidence: ${pct(p.confidence.calibrated)}`),
       ` for ${p.confidence.pick} — ${p.confidence.basis}. The model's raw score (${pct(p.confidence.raw_model_probability)}) is not a probability of being right.`) : null,
     el("p", { class: "bar-note" }, `Model v${p.engine_version} · trained on ${p.n_history} rounds · built after confirmed round ${p.latest_result ? (p.latest_result.period_id || "#" + p.latest_result.seq) : "—"} · status: ${p.status === "pending" ? "waiting for result" : p.status}${p.created_at ? " · generated " + fmtTs(p.created_at) : ""}`),
     none ? el("div", { class: "nosig" }, el("strong", {}, "No proven edge. "), "On rounds it had not seen, this pick did no better than flipping a coin.") : null,
@@ -616,11 +616,20 @@ function verdict(m) {
 function liveWindows(live, baselines) {
   const W = live.windows; if (!W) return null;
   const cell = x => !x || !x.n ? "—" : `${x.correct} ✓ / ${x.incorrect} ✗ · ${pct(x.rate)}${x.full ? "" : ` (only ${x.n} so far)`}`;
-  const sizes = ["50", "100", "500"];
+  const sizes = ["50", "100", "250", "500"];
   return el("div", { "data-testid": "live-windows" }, el("h3", {}, "Recent live accuracy"),
     el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, el("tr", {}, ["Category", ...sizes.map(w => `Last ${w}`), "Coin flip"].map(h => el("th", {}, h)))),
       el("tbody", {}, METRICS.map(([k, n]) => el("tr", {}, el("td", {}, n), ...sizes.map(w => el("td", {}, cell(W[k] && W[k][w]))), el("td", {}, pct(baselines[k]))))))),
-    el("p", { class: "bar-note" }, "Only picks that were made before their round ended and then scored against its verified result. Short windows swing a lot by chance: ±10 points on 50 picks is normal."));
+    el("p", { class: "bar-note" }, "Only picks that were made before their round ended and then scored against its verified result. Short windows swing a lot by chance: ±10 points on 50 picks is normal."),
+    live.by_side ? el("div", { "data-testid": "live-by-side" }, el("h3", {}, "Big picks vs Small picks"),
+      el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, el("tr", {}, ["Our pick", "Tested", "Correct", "Incorrect", "Accuracy", "95% range"].map(h => el("th", {}, h)))),
+        el("tbody", {}, ["Big", "Small"].map(sd => { const x = live.by_side[sd]; return el("tr", {}, el("td", {}, sd), el("td", {}, x.n), el("td", {}, x.correct), el("td", {}, x.incorrect),
+          el("td", {}, pct(x.rate)), el("td", {}, x.n ? `${pct(x.lo)} – ${pct(x.hi)}` : "—")); }))))) : null,
+    live.calibration ? el("div", { "data-testid": "live-calibration" }, el("h3", {}, "Confidence calibration"),
+      el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, el("tr", {}, ["Model said (for its pick)", "Picks", "Said on average", "Actually right", "95% range"].map(h => el("th", {}, h)))),
+        el("tbody", {}, live.calibration.filter(b => b.n).map(b => el("tr", {}, el("td", {}, `${(100 * b.from).toFixed(1)}% – ${(100 * Math.min(b.to, 1)).toFixed(1)}%`), el("td", {}, b.n),
+          el("td", {}, pct(b.stated)), el("td", {}, pct(b.actual)), el("td", {}, `${pct(b.lo)} – ${pct(b.hi)}`)))))),
+      el("p", { class: "bar-note" }, "A trustworthy model is right about as often as it says. If “said” is above 50% but “actually right” stays near 50%, the stated chance is not real.")) : null);
 }
 function renderPerf(perf) {
   const live = perf.live;
