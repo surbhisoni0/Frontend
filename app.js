@@ -451,6 +451,8 @@ function renderNext(p, perf, stats) {
     estimateNote(p),
     p.size_probs ? el("div", {}, el("div", { class: "bar-note" }, "Estimated chance (an uncertain estimate, not a validated forecast):"),
       SIZES.map(g => meter(g, p.size_probs[g], g.toLowerCase()))) : null,
+    p.confidence ? el("div", { class: "bar-note", "data-testid": "confidence" }, el("strong", {}, `Confidence: ${pct(p.confidence.calibrated)}`),
+      ` for ${p.confidence.pick} — ${p.confidence.basis}. The model's raw score (${pct(p.confidence.raw_model_probability)}) is not a probability of being right.`) : null,
     el("p", { class: "bar-note" }, `Model v${p.engine_version} · trained on ${p.n_history} rounds · built after confirmed round ${p.latest_result ? (p.latest_result.period_id || "#" + p.latest_result.seq) : "—"} · status: ${p.status === "pending" ? "waiting for result" : p.status}${p.created_at ? " · generated " + fmtTs(p.created_at) : ""}`),
     none ? el("div", { class: "nosig" }, el("strong", {}, "No proven edge. "), "On rounds it had not seen, this pick did no better than flipping a coin.") : null,
     el("details", {}, el("summary", { class: "muted" }, "Why this label?"),
@@ -611,10 +613,20 @@ function verdict(m) {
   const above = ["top1", "top3", "bs", "color"].filter(k => m[k].lo > m[k].baseline);
   return above.length ? el("span", { class: "pend" }, "nominal edge on " + above.join(", ") + " — check corrected p") : el("span", { class: "muted" }, "within noise of baseline");
 }
+function liveWindows(live, baselines) {
+  const W = live.windows; if (!W) return null;
+  const cell = x => !x || !x.n ? "—" : `${x.correct} ✓ / ${x.incorrect} ✗ · ${pct(x.rate)}${x.full ? "" : ` (only ${x.n} so far)`}`;
+  const sizes = ["50", "100", "500"];
+  return el("div", { "data-testid": "live-windows" }, el("h3", {}, "Recent live accuracy"),
+    el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, el("tr", {}, ["Category", ...sizes.map(w => `Last ${w}`), "Coin flip"].map(h => el("th", {}, h)))),
+      el("tbody", {}, METRICS.map(([k, n]) => el("tr", {}, el("td", {}, n), ...sizes.map(w => el("td", {}, cell(W[k] && W[k][w]))), el("td", {}, pct(baselines[k]))))))),
+    el("p", { class: "bar-note" }, "Only picks that were made before their round ended and then scored against its verified result. Short windows swing a lot by chance: ±10 points on 50 picks is normal."));
+}
 function renderPerf(perf) {
   const live = perf.live;
   setBody($("#perf-live"), el("div", { class: "kpis" }, el("div", { class: "kpi" }, el("span", {}, "Total predictions"), el("b", {}, live.total_predictions), el("i", {}, live.note)),
-    METRICS.map(([k, n]) => kpi(n, live.metrics[k]))), el("p", { class: "bar-note" }, `Current signal: ${perf.signal.label}. ${perf.signal.reasons[0] || ""}`));
+    METRICS.map(([k, n]) => kpi(n, live.metrics[k]))), el("p", { class: "bar-note" }, `Current signal: ${perf.signal.label}. ${perf.signal.reasons[0] || ""}`),
+    liveWindows(live, perf.baselines));
   const bt = perf.backtest, card = $("#perf-bt");
   if (!bt) { setBody(card, el("p", { class: "muted" }, "No walk-forward validation stored yet."), runBtn()); return; }
   const rows = Object.entries(bt.models).map(([k, m]) => el("tr", {}, el("td", {}, k === "Consensus" ? el("strong", {}, NAMES[k]) : NAMES[k] || k),
