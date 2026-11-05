@@ -861,7 +861,7 @@ async function loadStats() { const d = await api("/api/stats/report"); renderSta
 function showTab(name) {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach(s => s.classList.toggle("on", s.id === "tab-" + name));
-  ({ history: () => loadHistory(true), trends: loadTrends, perf: loadPerf, analysis: loadAnalysis, stats: loadStats })[name]?.();
+  ({ history: () => loadHistory(true), trends: loadTrends, perf: loadPerf, analysis: loadAnalysis, stats: loadStats, dr: () => (typeof loadDR === "function" ? loadDR() : null) })[name]?.();
 }
 async function setMode(m) {
   if (m === MODE) return;
@@ -892,6 +892,7 @@ function init() {
   $("#win").onchange = renderRecentFreq;
   $("#trwin").onchange = () => { trendWin = Number($("#trwin").value); loadTrends(); };
   $("#refresh").onclick = () => refreshAll();
+  if (typeof bindDR === "function") bindDR();
   buildPad(); pollStatus(); loadDash(); startPolling();
 }
 if (typeof document !== "undefined" && document.getElementById) init();
