@@ -116,3 +116,8 @@ dl.kv{margin:0}
 
 .lp-v.flash,#lp-num.flash{animation:lpflash 1.2s ease-out}
 @keyframes lpflash{0%{transform:scale(1.25);filter:brightness(1.6)}100%{transform:scale(1);filter:none}}
+/* Direct vs Reverse tab */
+.dr-win{color:var(--grn);font-weight:700}.dr-lose{color:var(--red);font-weight:700}.dr-flat{color:var(--mut)}
+.dr-verdict{margin:12px 0 4px;padding:10px 12px;border-left:3px solid var(--acc);background:var(--panel2);border-radius:0 6px 6px 0;font-size:14px}
+#dr-ctl select,#dr-ctl input{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+#dr-pick{margin-top:10px}
