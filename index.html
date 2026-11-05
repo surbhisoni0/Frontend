@@ -15,7 +15,7 @@
 <div id="conn" class="conn" role="status" hidden></div>
 <nav class="tabs" id="tabs">
   <button data-tab="dash" class="on">Predict</button><button data-tab="trends">Trends</button><button data-tab="history">History</button>
-  <button data-tab="stats" data-testid="tab-stats">Stats</button><button data-tab="perf">Accuracy</button><button data-tab="analysis">Data</button><button data-tab="add">Add rounds</button>
+  <button data-tab="stats" data-testid="tab-stats">Stats</button><button data-tab="perf">Accuracy</button><button data-tab="dr" data-testid="tab-dr">Direct vs Reverse</button><button data-tab="analysis">Data</button><button data-tab="add">Add rounds</button>
 </nav>
 <main>
 <section id="tab-dash" class="tab on">
@@ -65,6 +65,32 @@
   <div class="grid two"><article class="card"><h2>Accuracy over time <small>rolling 100 · vs random</small></h2><div id="chart-roll"></div></article>
   <article class="card"><h2>Live accuracy over time</h2><div id="chart-live"></div></article></div>
 </section>
+<section id="tab-dr" class="tab" data-testid="dr-page">
+  <article class="card" id="dr-ctl"><h2>DIRECT vs REVERSE ANALYSIS <small>same verified rounds, two strategies · mode follows the 30 Sec / 1 Min switch</small></h2>
+    <div class="row">
+      <label>Data <select id="dr-source"><option value="backtest" selected>Walk-forward backtest (all history)</option><option value="live">Live picks (made before the result)</option></select></label>
+      <label>From date <small>(date inside the round ID)</small><input id="dr-from" type="date"></label>
+      <label>To date<input id="dr-to" type="date"></label>
+      <label>Rolling window <select id="dr-win"><option>50</option><option selected>100</option><option>250</option><option>500</option></select></label>
+      <button class="btn" id="dr-apply" type="button">Apply range</button><button class="btn ghost" id="dr-reset" type="button">Whole history</button>
+    </div></article>
+  <article class="card" id="dr-sum"><h2>Direct vs Reverse <small>reverse = the opposite of every pick</small></h2><div class="skeleton">open this tab to load</div></article>
+  <div class="grid two"><article class="card" id="dr-bars"><h2>Accuracy comparison <small>whiskers = 95% interval</small></h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="dr-cum"><h2>Historical performance <small>cumulative accuracy</small></h2><div class="skeleton">loading…</div></article></div>
+  <article class="card" id="dr-roll"><h2>Rolling accuracy <small>shaded band = where a pure coin flip lands 95% of the time</small></h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="dr-algo"><h2>Algorithm-wise comparison <small>each algorithm's own Big/Small pick</small></h2><div class="skeleton">loading…</div></article>
+  <div class="grid two"><article class="card" id="dr-side"><h2>Big / Small breakdown</h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="dr-blocks"><h2>By time period <small>equal chronological blocks</small></h2><div class="skeleton">loading…</div></article></div>
+  <article class="card" id="dr-val"><h2>Out-of-sample validation <small>strategy chosen on the past, scored on unseen later rounds</small></h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="dr-diag"><h2>Why would reversal work? <small>diagnostics</small></h2><div class="skeleton">loading…</div></article>
+  <article class="card" id="dr-mode"><h2>Experimental prediction mode <small>the normal Predict tab is unchanged</small></h2>
+    <div class="row" role="radiogroup" aria-label="Prediction strategy">
+      <label class="inline"><input type="radio" name="dr-strat" value="direct" checked> Direct prediction</label>
+      <label class="inline"><input type="radio" name="dr-strat" value="reverse"> Reverse prediction</label>
+      <label class="inline"><input type="radio" name="dr-strat" value="best"> Best historically validated</label>
+      <button class="btn" id="dr-getpick" type="button">Show pick</button></div>
+    <div id="dr-pick" class="msg"></div></article>
+</section>
 <section id="tab-analysis" class="tab">
   <div class="grid two"><article class="card"><h2>Number distribution <small>dashed = 10% expected</small></h2><div id="chart-dist"></div></article>
   <article class="card"><h2>Recent frequency <select id="win"><option>20</option><option selected>50</option><option>100</option></select></h2><div id="chart-recent"></div></article></div>
@@ -98,5 +124,6 @@
 </main>
 <footer>Analysis only · no guarantee of any outcome · no betting, deposit or withdrawal features</footer>
 <script src="app.js?v=20261101-fast3"></script>
+<script src="directreverse.js?v=1"></script>
 </body>
 </html>
