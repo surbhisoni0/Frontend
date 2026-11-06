@@ -15,7 +15,7 @@
 <div id="conn" class="conn" role="status" hidden></div>
 <nav class="tabs" id="tabs">
   <button data-tab="dash" class="on">Predict</button><button data-tab="trends">Trends</button><button data-tab="history">History</button>
-  <button data-tab="stats" data-testid="tab-stats">Stats</button><button data-tab="perf">Accuracy</button><button data-tab="dr" data-testid="tab-dr">Direct vs Reverse</button><button data-tab="analysis">Data</button><button data-tab="add">Add rounds</button>
+  <button data-tab="stats" data-testid="tab-stats">Stats</button><button data-tab="perf">Accuracy</button><button data-tab="dr" data-testid="tab-dr">Direct vs Reverse</button><button data-tab="research" data-testid="tab-research">Research</button><button data-tab="analysis">Data</button><button data-tab="add">Add rounds</button>
 </nav>
 <main>
 <section id="tab-dash" class="tab on">
@@ -64,6 +64,9 @@
   <article class="card" id="sizeeval"><h2>Big/Small evaluation <small>probability quality on unseen rounds</small></h2><div class="skeleton">loading…</div></article>
   <div class="grid two"><article class="card"><h2>Accuracy over time <small>rolling 100 · vs random</small></h2><div id="chart-roll"></div></article>
   <article class="card"><h2>Live accuracy over time</h2><div id="chart-live"></div></article></div>
+</section>
+<section id="tab-research" class="tab" data-testid="research-page">
+  <article class="card" id="rs-card"><h2>Research audit <small>strict walk-forward · final 1,000 rounds untouched until scoring</small></h2><div id="rs-body"><div class="skeleton">open this tab to load</div></div></article>
 </section>
 <section id="tab-dr" class="tab" data-testid="dr-page">
   <article class="card" id="dr-ctl"><h2>DIRECT vs REVERSE ANALYSIS <small>same verified rounds, two strategies · mode follows the 30 Sec / 1 Min switch</small></h2>
@@ -125,5 +128,6 @@
 <footer>Analysis only · no guarantee of any outcome · no betting, deposit or withdrawal features</footer>
 <script src="app.js?v=20261101-fast3"></script>
 <script src="directreverse.js?v=1"></script>
+<script src="research.js?v=1"></script>
 </body>
 </html>
