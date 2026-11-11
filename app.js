@@ -451,7 +451,7 @@ function renderNext(p, perf, stats) {
     estimateNote(p),
     p.size_probs ? el("div", {}, el("div", { class: "bar-note" }, "Estimated chance (an uncertain estimate, not a validated forecast):"),
       SIZES.map(g => meter(g, p.size_probs[g], g.toLowerCase()))) : null,
-    p.confidence ? el("div", { class: "bar-note", "data-testid": "confidence" }, p.confidence.abstain ? el("strong", { "data-testid": "no-prediction" }, "NO PREDICTION · ") : null, el("strong", {}, `Confidence: ${pct(p.confidence.calibrated)}`),
+    p.confidence ? el("div", { class: "bar-note", "data-testid": "confidence" }, p.confidence.abstain ? el("strong", { "data-testid": "no-prediction" }, "NO PREDICTION · ") : null, el("strong", {}, `Confidence ${p.confidence.level || ""}: ${pct(p.confidence.calibrated)}`),
       ` for ${p.confidence.pick} — ${p.confidence.basis}. The model's raw score (${pct(p.confidence.raw_model_probability)}) is not a probability of being right.`) : null,
     el("p", { class: "bar-note" }, `Model v${p.engine_version} · trained on ${p.n_history} rounds · built after confirmed round ${p.latest_result ? (p.latest_result.period_id || "#" + p.latest_result.seq) : "—"} · status: ${p.status === "pending" ? "waiting for result" : p.status}${p.created_at ? " · generated " + fmtTs(p.created_at) : ""}`),
     none ? el("div", { class: "nosig" }, el("strong", {}, "No proven edge. "), "On rounds it had not seen, this pick did no better than flipping a coin.") : null,
@@ -861,7 +861,7 @@ async function loadStats() { const d = await api("/api/stats/report"); renderSta
 function showTab(name) {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach(s => s.classList.toggle("on", s.id === "tab-" + name));
-  ({ history: () => loadHistory(true), trends: loadTrends, perf: loadPerf, analysis: loadAnalysis, stats: loadStats, dr: () => (typeof loadDR === "function" ? loadDR() : null), research: () => (typeof loadResearch === "function" ? loadResearch() : null) })[name]?.();
+  ({ history: () => loadHistory(true), trends: loadTrends, perf: loadPerf, analysis: loadAnalysis, stats: loadStats })[name]?.();
 }
 async function setMode(m) {
   if (m === MODE) return;
@@ -892,7 +892,6 @@ function init() {
   $("#win").onchange = renderRecentFreq;
   $("#trwin").onchange = () => { trendWin = Number($("#trwin").value); loadTrends(); };
   $("#refresh").onclick = () => refreshAll();
-  if (typeof bindDR === "function") bindDR();
   buildPad(); pollStatus(); loadDash(); startPolling();
 }
 if (typeof document !== "undefined" && document.getElementById) init();
